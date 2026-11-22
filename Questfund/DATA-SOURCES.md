@@ -1,0 +1,18 @@
+# Questfund data sources
+
+The bundled numeric item-to-quest index is derived from the public [QuestieDB Forever base tables](https://github.com/Questie/QuestieDB/tree/9b8b82ecd85bfe504a2d2c8a020dedde100230ca/data/Forever) at commit `9b8b82ecd85bfe504a2d2c8a020dedde100230ca`. QuestieDB incorporates data from Questie. Upstream terms and attribution are kept in `UPSTREAM-LICENSE.md` and `UPSTREAM-PROVENANCE.md`. The original Questfund code is provided under GPL-3.0-only.
+
+The index links inventory item IDs to quest IDs and records objective, starter, source, minimum level, repeatability, and race or class fields. The turn-in index joins quest finishers to the NPC and object spawn tables and uses the [Forever area map](https://github.com/Questie/QuestieDB/tree/9b8b82ecd85bfe504a2d2c8a020dedde100230ca/support/Forever/Zones) for map IDs. It uses only recorded spawns for coordinates. German NPC and object names use the [Forever German lookups](https://github.com/Questie/QuestieDB/tree/9b8b82ecd85bfe504a2d2c8a020dedde100230ca/l10n/Forever), with English base names as a fallback. The client supplies map, item and quest names.
+
+Faction filtering checks the Forever quest race mask and the finisher's `friendlyToFaction` field separately. Object finishers inherit the quest restriction when no object restriction is supplied. Navigation uses the client's [map position, size and art APIs](https://raw.githubusercontent.com/Gethe/wow-ui-source/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/MapDocumentation.lua) and its [minimap view radius](https://raw.githubusercontent.com/Gethe/wow-ui-source/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/MinimapDocumentation.lua). Distances are straight-line estimates based on the recorded spawn and available client coordinates.
+
+Offline quantities use the numeric `ReqItemId` and `ReqItemCount` fields of [CMaNGOS ClassicDB](https://github.com/cmangos/classic-db/tree/13e933726f386399d9820138fbd1123e7cda86c8), archive `Full_DB/ClassicDB_1_12_1_z2815.sql.gz`. The generator requires the same quest ID and matching required item IDs, allowing an extra required item only when it is also the Forever quest's source and starting item. It extracts quantities and IDs from ClassicDB. ClassicDB notices accompany the generated tables in `ClassicDB-LICENSE.md` and `ClassicDB-COPYRIGHT.md`.
+
+For an active quest with one matching item objective, Questfund uses Forever's live [quest objective requirement](https://raw.githubusercontent.com/Gethe/wow-ui-source/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/QuestLogDocumentation.lua). The pinned reference may omit later additions or differ from the live game. The shipped snapshot contains quantities for 541 repeatable item quests, with known finishers for 495 of them.
+
+To rebuild, place these files in `.data-cache/` at the project root and run `python tools/build_index.py` with `lupa` installed.
+
+- `foreverQuestDB.lua`, `foreverItemDB.lua`, `foreverNpcDB.lua` and `foreverObjectDB.lua` from `data/Forever/` in QuestieDB
+- `areaIdToUiMapId.lua` from `support/Forever/Zones/` in QuestieDB
+- `l10n/Forever/lookupNpcs/deDE.lua` and `l10n/Forever/lookupObjects/deDE.lua` from QuestieDB, saved as `lookupNpcs-deDE.lua` and `lookupObjects-deDE.lua`
+- `ClassicDB_1_12_1_z2815.sql.gz` from ClassicDB

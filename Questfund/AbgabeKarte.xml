@@ -1,0 +1,8 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Frame name="QuestfundAbgabePinTemplate" mixin="QuestfundAbgabePinMixin" virtual="true">
+        <Size x="20" y="20"/>
+        <Scripts>
+            <OnLoad method="Initialize"/>
+        </Scripts>
+    </Frame>
+</Ui>
