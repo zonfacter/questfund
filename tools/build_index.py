@@ -136,7 +136,7 @@ with out.open("w", encoding="utf-8", newline="\n") as f:
         packed = ",".join(str(quest * 8 + flag) for quest, flag in sorted(references.items()))
         f.write(f"    [{item}]={{{packed}}},\n")
     f.write("}\naddon.questMeta = {\n")
-    for quest in sorted(used):
+    for quest in sorted(quests.keys()):
         row = quests[quest]
         level = max(row[quest_keys["requiredLevel"]] or 0, 0)
         races = row[quest_keys["requiredRaces"]] or 0
@@ -162,39 +162,40 @@ def quest_side(quest):
     return 1 if alliance and not horde else 2 if horde and not alliance else 3
 
 
-def turn_in_targets(quest):
-    finishers = quest[quest_keys["finishedBy"]]
-    if finishers is None:
+def pack_points(spawns, preferred_map=0):
+    places = set()
+    for area, coords in spawns.items() if spawns is not None else ():
+        map_id = maps.get(area, 0)
+        if map_id > 0:
+            for point in entries(coords):
+                x, y = point[1], point[2]
+                if isinstance(x, (float, int)) and isinstance(y, (float, int)) and 0 <= x <= 100 and 0 <= y <= 100 and (x or y):
+                    places.add((map_id, round(x, 1), round(y, 1)))
+    ordered = sorted(places, key=lambda place: (place[0] != preferred_map, *place))
+    return "{" + ",".join(f"{{{m},{x:g},{y:g}}}" for m, x, y in ordered) + "}"
+
+
+def pack_target(kind, target_id, preferred_map=0):
+    keys, rows = targets_by_kind[kind-1]
+    row = rows[target_id]
+    name = row[keys["name"]] if row else None
+    spawns = row[keys["spawns"]] if row else None
+    german = german_by_kind[kind-1].get(target_id)
+    localized = lua_string(german) if german and german != name else "nil"
+    if kind == 1:
+        friendly = row[keys["friendlyToFaction"]] if row else None
+        side = {"A": 1, "H": 2, "AH": 3}.get(friendly, 0)
+    else:
+        side = row[keys["factionID"]] if row else None
+        side = side if side in (1, 2) else 3
+    return f"{{{kind},{target_id},{lua_string(name or '')},{pack_points(spawns, preferred_map)},{localized},{side}}}"
+
+
+def contacts(groups, allow_items=False):
+    if not groups:
         return []
-    targets = []
-    for kind, (keys, rows) in enumerate(targets_by_kind, 1):
-        for target_id in entries(finishers[kind]):
-            row = rows[target_id]
-            name = row[keys["name"]] if row else None
-            spawns = row[keys["spawns"]] if row else None
-            places = set()
-            for area, coords in spawns.items() if spawns is not None else ():
-                map_id = maps.get(area, 0)
-                if map_id > 0:
-                    for point in entries(coords):
-                        x, y = point[1], point[2]
-                        if 0 <= x <= 100 and 0 <= y <= 100 and (x or y):
-                            places.add((map_id, round(x, 1), round(y, 1)))
-            # Only use the quest zone to order real spawns. An unmapped spawn
-            # cannot establish that the finisher is in the quest's zone.
-            quest_map = maps.get(quest[quest_keys["zoneOrSort"]], 0)
-            ordered = sorted(places, key=lambda place: (place[0] != quest_map, *place))
-            points = ",".join(f"{{{m},{x:g},{y:g}}}" for m, x, y in ordered)
-            german = german_by_kind[kind-1].get(target_id)
-            localized = lua_string(german) if german and german != name else "nil"
-            if kind == 1:
-                friendly = row[keys["friendlyToFaction"]] if row else None
-                side = {"A": 1, "H": 2, "AH": 3}.get(friendly, 0)
-            else:
-                side = row[keys["factionID"]] if row else None
-                side = side if side in (1, 2) else 3
-            targets.append(f"{{{kind},{target_id},{lua_string(name or '')},{{{points}}},{localized},{side}}}")
-    return targets
+    return [(kind, entity) for kind in range(1, 4 if allow_items else 3)
+            for entity in entries(groups[kind]) if isinstance(entity, int) and entity > 0]
 
 
 repeatable_count, amount_count, located_count = 0, 0, 0
@@ -204,8 +205,8 @@ with (ROOT / "Questfund" / "AbgabeIndex.lua").open("w", encoding="utf-8", newlin
     for quest_id in sorted(used):
         quest = quests[quest_id]
         objectives = quest[quest_keys["objectives"]]
-        items = {goal[1] for goal in entries(objectives[3] if objectives else None) if goal[1]}
-        if not items or not ((quest[quest_keys["specialFlags"]] or 0) & 1):
+        required_items = {goal[1] for goal in entries(objectives[3] if objectives else None) if goal[1]}
+        if not required_items or not ((quest[quest_keys["specialFlags"]] or 0) & 1):
             continue
         amounts = classic.get(quest_id, {})
         # Some quests consume their starting object (e.g. a Craftsman's Writ).
@@ -214,12 +215,85 @@ with (ROOT / "Questfund" / "AbgabeIndex.lua").open("w", encoding="utf-8", newlin
         starters = quest[quest_keys["startedBy"]]
         starting_items = set(entries(starters[3] if starters else None))
         allowed_extra = {source} & starting_items
-        quantities = amounts if items <= amounts.keys() <= items | allowed_extra else {}
+        quantities = amounts if required_items <= amounts.keys() <= required_items | allowed_extra else {}
         packed_counts = ",".join(f"[{item}]={count}" for item, count in sorted(quantities.items()))
-        targets = turn_in_targets(quest)
-        f.write(f"    [{quest_id}]={{itemCount={len(items)},side={quest_side(quest)},amounts={{{packed_counts}}},targets={{{','.join(targets)}}}}},\n")
+        preferred_map = maps.get(quest[quest_keys["zoneOrSort"]], 0)
+        targets = [pack_target(kind, entity, preferred_map) for kind, entity in contacts(quest[quest_keys["finishedBy"]])]
+        f.write(f"    [{quest_id}]={{itemCount={len(required_items)},side={quest_side(quest)},amounts={{{packed_counts}}},targets={{{','.join(targets)}}}}},\n")
         repeatable_count += 1
         amount_count += bool(quantities)
         located_count += bool(targets)
     f.write("}\n")
 print(f"{repeatable_count} repeatable item quests, {located_count} with finishers, {amount_count} with reference amounts.")
+
+
+def objective_refs(quest_id, quest):
+    objectives = quest[quest_keys["objectives"]]
+    refs = [(kind, goal[1]) for kind in (1, 2, 3) for goal in entries(objectives[kind] if objectives else None)
+            if isinstance(goal[1], int) and goal[1] > 0]
+    if objectives:
+        for group in entries(objectives[5]):
+            refs.extend((1, npc) for npc in entries(group[1]) if isinstance(npc, int) and npc > 0)
+        refs.extend((3, goal[3]) for goal in entries(objectives[6]) if isinstance(goal[3], int) and goal[3] > 0)
+    trigger = quest[quest_keys["triggerEnd"]]
+    if trigger and trigger[2]:
+        refs.append((4, quest_id))
+    return refs
+
+
+def item_drop_refs(item_id, visited):
+    row = items[item_id]
+    if not row or item_id in visited:
+        return []
+    visited.add(item_id)
+    refs = [(kind, entity) for kind, field in ((1, "npcDrops"), (2, "objectDrops"))
+            for entity in entries(row[item_keys[field]]) if isinstance(entity, int) and entity > 0]
+    for container_id in entries(row[item_keys["itemDrops"]]):
+        refs.extend(item_drop_refs(container_id, visited))
+    return list(dict.fromkeys(refs))
+
+
+def pack_refs(refs):
+    return "{" + ",".join(f"{{{kind},{entity}}}" for kind, entity in refs) + "}"
+
+
+entities = [set() for _ in range(4)]
+route_count = 0
+with (ROOT / "Questfund" / "QuestorteIndex.lua").open("w", encoding="utf-8", newline="\n") as f:
+    f.write(f"-- Quest locations from QuestieDB Forever {PIN}. See DATA-SOURCES.md and UPSTREAM-LICENSE.md.\n")
+    f.write("local _, addon = ...\naddon.questRoutes = {\n")
+    for quest_id, quest in sorted(quests.items()):
+        stages = [contacts(quest[quest_keys["startedBy"]], allow_items=True),
+                  objective_refs(quest_id, quest), contacts(quest[quest_keys["finishedBy"]])]
+        stages = [list(dict.fromkeys(refs)) for refs in stages]
+        for refs in stages:
+            for kind, entity in refs:
+                entities[kind-1].add(entity)
+        route_count += any(stages)
+        zone = maps.get(quest[quest_keys["zoneOrSort"]], 0)
+        f.write(f"    [{quest_id}]={{{quest_side(quest)},{zone},{','.join(map(pack_refs, stages))}}},\n")
+    f.write("}\naddon.questItemSources = {\n")
+    for item_id in sorted(entities[2]):
+        refs = item_drop_refs(item_id, set())
+        for kind, entity in refs:
+            entities[kind-1].add(entity)
+        if refs:
+            f.write(f"    [{item_id}]={pack_refs(refs)},\n")
+    f.write("}\naddon.questEntities = {{},{},{},{}}\n")
+    for kind, ids in enumerate(entities, 1):
+        # Separate assignment functions keep each generated Lua prototype small.
+        ordered = sorted(ids)
+        for start in range(0, len(ordered), 300):
+            f.write(f";(function(rows)\n")
+            for entity in ordered[start:start+300]:
+                if kind in (1, 2):
+                    target = pack_target(kind, entity)
+                elif kind == 3:
+                    name = items[entity][item_keys["name"]] if items[entity] else ""
+                    target = f"{{3,{entity},{lua_string(name or '')},{{}},nil,3}}"
+                else:
+                    spawns = quests[entity][quest_keys["triggerEnd"]][2]
+                    target = f'{{4,{entity},"",{pack_points(spawns)},nil,3}}'
+                f.write(f"    rows[{entity}]={target}\n")
+            f.write(f"end)(addon.questEntities[{kind}])\n")
+print(f"{route_count} quests with navigation references; {sum(map(len, entities))} shared locations and items.")

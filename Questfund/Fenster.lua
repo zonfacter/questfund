@@ -6,7 +6,7 @@ local color = {
 }
 local categories = {
     {"all","Alle Funde"}, {"inactive","Ohne aktive Quest"}, {"repeatable","Wiederholbar"},
-    {"starter","Queststart"}, {"active","Aktiv"}, {"unknown","Unklar"},
+    {"starter","Queststart"}, {"active","Aktiv"}, {"unknown","Unklar"}, {"questlog","Questlog"},
 }
 local status = {
     inactive={"Ohne aktive Quest",color.amber}, repeatable={"Wiederholbare Abgabe",color.mint},
@@ -15,7 +15,6 @@ local status = {
 }
 local window, refresh
 local width, height = 834, 568
-local german = GetLocale() == "deDE"
 local asked = {}
 
 local function fill(parent, rgba, x, y, w, h)
@@ -94,7 +93,7 @@ local function build()
     grip:SetScript("OnDragStart",function() f:StartMoving() end)
     grip:SetScript("OnDragStop",function() f:StopMovingOrSizing() end)
     label(grip,16,9,330,"Questfund","GameFontNormalLarge")
-    label(grip,16,32,480,"Questgegenstände in Taschen und Bank",nil,color.muted)
+    label(grip,16,32,480,"Questgegenstände und Queststandorte",nil,color.muted)
     local bankStatus=label(f,540,19,240,"",nil,color.muted)
     bankStatus:SetJustifyH("RIGHT")
     button(f,789,11,29,26,"×",function() f:Hide() end)
@@ -102,7 +101,7 @@ local function build()
     local filter, page, selected = "all", 1
     local filters, rows = {}, {}
     local x=16
-    local widths={101,150,118,112,87,99}
+    local widths={101,150,118,101,82,85,101}
     for i, entry in ipairs(categories) do
         local key=entry[1]
         filters[i]=button(f,x,61,widths[i],27,entry[2],function()
@@ -168,23 +167,29 @@ local function build()
     detailQuests:SetMaxLines(10)
     local detailPlaces=label(f,537,354,267,"",nil,color.muted)
     detailPlaces:SetMaxLines(8)
-    label(f,16,544,802,"„Ohne aktive Quest“ beschreibt dein Questlog. Der Gegenstand kann später noch gebraucht werden.",nil,color.muted)
+    local note=label(f,16,544,802,"",nil,color.muted)
 
     local turnInPanel=CreateFrame("Frame",nil,f)
     turnInPanel:SetPoint("TOPLEFT",537,-179)
-    turnInPanel:SetSize(267,230)
-    local turnIndex, placeIndex, detailItem = 1, 1
-    local previousTurn=button(turnInPanel,0,0,28,21,"‹",function() turnIndex=turnIndex-1; placeIndex=1; refresh() end)
-    local nextTurn=button(turnInPanel,239,0,28,21,"›",function() turnIndex=turnIndex+1; placeIndex=1; refresh() end)
+    turnInPanel:SetSize(267,256)
+    local turnIndex, placeIndex, detailItem, detailQuest, stage = 1, 1
+    local previousTurn=button(turnInPanel,0,0,28,21,"‹",function() turnIndex=turnIndex-1; refresh() end)
+    local nextTurn=button(turnInPanel,239,0,28,21,"›",function() turnIndex=turnIndex+1; refresh() end)
     local turnCount=label(turnInPanel,33,4,201,"",nil,color.muted)
     turnCount:SetJustifyH("CENTER")
     local title=label(turnInPanel,0,27,267,"","GameFontHighlight",color.mint)
     title:SetMaxLines(2)
-    local finisher=label(turnInPanel,0,63,267,"")
+    local stages={}
+    for i,text in ipairs({"Questgeber","Ziele","Abgabe"}) do
+        local role=i
+        stages[i]=button(turnInPanel,(i-1)*90,62,87,23,text,function() stage,placeIndex=role,1; refresh() end)
+        stages[i]:GetFontString():SetTextColor(unpack(addon.questStageColors[i]))
+    end
+    local finisher=label(turnInPanel,0,94,267,"")
     finisher:SetMaxLines(2)
-    local location=label(turnInPanel,0,92,211,"",nil,color.muted)
+    local location=label(turnInPanel,0,122,211,"",nil,color.muted)
     location:SetMaxLines(1)
-    local mapButton=button(turnInPanel,0,108,180,21,"",function(self)
+    local mapButton=button(turnInPanel,0,142,180,23,"",function(self)
         if not self.destination then return end
         if addon.OpenTurnInMap(self.destination,f) then
             addon.TrackTurnIn(self.destination)
@@ -193,16 +198,16 @@ local function build()
         end
     end)
     mapButton:GetFontString():SetTextColor(unpack(color.mint))
-    local trackButton=button(turnInPanel,187,108,80,21,"Verfolgen",function(self)
+    local trackButton=button(turnInPanel,187,142,80,23,"Verfolgen",function(self)
         if self.destination and addon.TrackTurnIn(self.destination) then f:Hide() end
     end)
-    local previousPlace=button(turnInPanel,211,92,25,22,"‹",function() placeIndex=placeIndex-1; refresh() end)
-    local nextPlace=button(turnInPanel,242,92,25,22,"›",function() placeIndex=placeIndex+1; refresh() end)
-    local requirement=label(turnInPanel,0,133,267,"","GameFontHighlight")
-    local stock=label(turnInPanel,0,154,267,"",nil,color.muted)
-    local missing=label(turnInPanel,0,173,267,"")
+    local previousPlace=button(turnInPanel,211,116,25,22,"‹",function() placeIndex=placeIndex-1; refresh() end)
+    local nextPlace=button(turnInPanel,242,116,25,22,"›",function() placeIndex=placeIndex+1; refresh() end)
+    local requirement=label(turnInPanel,0,170,267,"","GameFontHighlight")
+    local stock=label(turnInPanel,0,189,267,"",nil,color.muted)
+    local missing=label(turnInPanel,0,207,267,"")
     missing:SetMaxLines(2)
-    local materials=button(turnInPanel,0,203,182,22,"Weitere Materialien",nil)
+    local materials=button(turnInPanel,0,233,182,22,"Weitere Materialien",nil)
     local extraMaterials
     materials:SetScript("OnEnter",function(self)
         GameTooltip:SetOwner(self,"ANCHOR_RIGHT")
@@ -213,24 +218,35 @@ local function build()
     materials:SetScript("OnLeave",function(self) if GameTooltip:IsOwned(self) then GameTooltip:Hide() end end)
     materials:SetScript("OnHide",materials:GetScript("OnLeave"))
 
-    local function turnInDetails(entry, entriesByID, bankLive, bankStamp)
-        turnIndex=math.min(math.max(1,turnIndex),#entry.repeats)
-        local id=entry.repeats[turnIndex]
-        local turn=addon.turnIns[id]
+    local function questDetails(entry, questIDs, entriesByID, bankLive, bankStamp, active)
+        turnIndex=math.min(math.max(1,turnIndex),#questIDs)
+        local id=questIDs[turnIndex]
+        local turn=not entry.isQuest and addon.turnIns[id]
+        if turn and not (turn.amounts[entry.id] or (entry.quests[id] or 0)%2==1) then turn=nil end
+        if id~=detailQuest then
+            detailQuest,placeIndex=id,1
+            stage=turn and 3 or active[id] and 2 or entry.status=="starter" and 1 or 3
+        end
         local meta=addon.questMeta[id]
         local level=meta and meta[1]>0 and (" · Ab Stufe %d"):format(meta[1]) or ""
-        turnCount:SetText(("Abgabe %d / %d%s"):format(turnIndex,#entry.repeats,level))
+        turnCount:SetText(("%s %d / %d%s"):format(turn and "Abgabe" or "Quest",turnIndex,#questIDs,level))
         previousTurn:SetEnabled(turnIndex>1)
-        nextTurn:SetEnabled(turnIndex<#entry.repeats)
-        previousTurn:SetShown(#entry.repeats>1)
-        nextTurn:SetShown(#entry.repeats>1)
-        local quest=questTitle(id)
+        nextTurn:SetEnabled(turnIndex<#questIDs)
+        previousTurn:SetShown(#questIDs>1)
+        nextTurn:SetShown(#questIDs>1)
+        local quest=entry.isQuest and entry.name or questTitle(id)
         title:SetText(quest)
+        for i,tab in ipairs(stages) do tab.bg:SetColorTexture(unpack(i==stage and color.selected or color.row)) end
 
-        local places={}
-        for _, target in ipairs(addon.TurnInTargets(id)) do
-            for _, point in ipairs(target[4]) do places[#places+1]={target,point} end
-            if #target[4]==0 then places[#places+1]={target} end
+        local places
+        if turn and stage==3 then
+            places={}
+            for _, target in ipairs(addon.TurnInTargets(id)) do
+                for _, point in ipairs(target[4]) do places[#places+1]={target=target,point=point} end
+                if #target[4]==0 then places[#places+1]={target=target} end
+            end
+        else
+            places=addon.QuestStagePlaces(id,stage)
         end
         placeIndex=math.min(math.max(1,placeIndex),math.max(1,#places))
         previousPlace:SetShown(#places>1)
@@ -239,24 +255,14 @@ local function build()
         nextPlace:SetEnabled(placeIndex<#places)
         location:SetWidth(#places>1 and 204 or 267)
         local place=places[placeIndex]
-        local destination
+        local destination=place and place.point and addon.Destination(place,id,quest)
         if place then
-            local target, point=unpack(place)
-            local kind=target[1]==1 and "NPC" or "Objekt"
-            local targetName=german and target[5] or target[3]
-            local npc=kind.." · "..(targetName~="" and targetName or "#"..target[2])
-            finisher:SetText(npc)
-            local where="Ort unbekannt"
-            if point then
-                local map=C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(point[1])
-                local coords=("%.1f / %.1f"):format(point[2],point[3]):gsub("%.",",")
-                where=map and map.name or "Karte #"..point[1]
-                destination={point=point,target=target,questID=id,finisher=npc,quest=quest,coords=coords,zone=where}
-            end
+            finisher:SetText(destination and destination.finisher or addon.DestinationLabel(place))
+            local where=destination and destination.zone or "Ort unbekannt"
             if #places>1 then where=where..(" · %d / %d"):format(placeIndex,#places) end
             location:SetText(where)
         else
-            finisher:SetText("Abgabestelle unbekannt")
+            finisher:SetText(({"Questgeber unbekannt","Keine kartierbaren Questziele","Abgabestelle unbekannt"})[stage])
             location:SetText("")
         end
         mapButton.destination=destination
@@ -265,6 +271,10 @@ local function build()
         trackButton:SetShown(destination~=nil)
         if destination then mapButton:SetText(destination.coords.." · Karte öffnen") end
 
+        if not turn then
+            requirement:SetText(""); stock:SetText(""); missing:SetText(""); materials:Hide()
+            return
+        end
         local amount, liveAmount=addon.TurnInAmount(entry,id)
         requirement:SetText(amount and ("Benötigt pro Abgabe · %d"):format(amount) or "Benötigte Menge unbekannt")
         local bank=bankStamp and tostring(entry.bank) or "?"
@@ -290,38 +300,36 @@ local function build()
         if #extraMaterials>0 then materials:SetText(("Weitere Materialien (%d)"):format(#extraMaterials)) end
     end
 
-    local function details(entry, entriesByID, bankLive, bankStamp)
-        local itemID=entry and entry.id
-        if itemID~=detailItem then detailItem,turnIndex,placeIndex=itemID,1,1 end
-        local repeated=entry and #entry.repeats>0 or false
-        detailTitle:SetText(entry and entry.name or "Gegenstand prüfen")
-        detailStatus:SetText(entry and status[entry.status][1] or "")
-        detailStatus:SetTextColor(unpack(entry and status[entry.status][2] or color.muted))
-        turnInPanel:SetShown(repeated)
-        detailQuests:SetShown(not repeated)
-        detailPlaces:ClearAllPoints()
-        detailPlaces:SetPoint("TOPLEFT",537,repeated and -424 or -354)
-        if not entry then detailQuests:SetText(""); detailPlaces:SetText(""); return end
-        local questIDs, parts = {}, {}
-        if repeated then
-            turnInDetails(entry,entriesByID,bankLive,bankStamp)
-        else
-            for id in pairs(entry.quests) do questIDs[#questIDs+1]=id end
-            table.sort(questIDs)
-            if #questIDs > 0 then
-                parts[1]="Zugeordnete Quests"
-                for i=1,math.min(4,#questIDs) do
-                    local id=questIDs[i]
-                    local meta=addon.questMeta[id]
-                    parts[#parts+1]=(meta and meta[1]>0 and ("Stufe %d · "):format(meta[1]) or "")..questTitle(id)
-                end
-                if #questIDs>4 then parts[#parts+1]=("Weitere: %d"):format(#questIDs-4) end
+    local function details(entry, entriesByID, bankLive, bankStamp, active)
+        local itemKey=entry and (filter..":"..entry.id)
+        if itemKey~=detailItem then detailItem,detailQuest,turnIndex,placeIndex=itemKey,nil,1,1 end
+        local questIDs={}
+        if entry then
+            if entry.isQuest then questIDs[1]=entry.id
+            elseif filter=="repeatable" then questIDs=entry.repeats
             else
-                parts[1]="Für diesen Gegenstand fehlt eine verlässliche Questzuordnung."
+                local repeats={}
+                for _,id in ipairs(entry.repeats) do repeats[id]=true end
+                for id in pairs(entry.quests) do questIDs[#questIDs+1]=id end
+                table.sort(questIDs,function(a,b)
+                    if repeats[a]~=repeats[b] then return repeats[a]==true end
+                    return a<b
+                end)
             end
-            detailQuests:SetText(table.concat(parts,"\n"))
         end
-        local locations={"Fundorte"}
+        local hasQuests=#questIDs>0
+        detailTitle:SetText(entry and entry.name or "Gegenstand prüfen")
+        detailStatus:SetText(entry and (entry.isQuest and "Im Questlog" or status[entry.status][1]) or "")
+        detailStatus:SetTextColor(unpack(entry and status[entry.status][2] or color.muted))
+        turnInPanel:SetShown(hasQuests)
+        detailQuests:SetShown(not hasQuests)
+        detailPlaces:ClearAllPoints()
+        detailPlaces:SetPoint("TOPLEFT",537,hasQuests and -441 or -354)
+        if not entry then detailQuests:SetText(""); detailPlaces:SetText(""); return end
+        if hasQuests then questDetails(entry,questIDs,entriesByID,bankLive,bankStamp,active)
+        else detailQuests:SetText("Für diesen Gegenstand fehlt eine verlässliche Questzuordnung.") end
+        if entry.isQuest then detailPlaces:SetText(""); return end
+        local locations={"Inventarplätze"}
         for i=1,math.min(6,#entry.places) do
             local p=entry.places[i]
             locations[#locations+1]=("%s · Platz %d · %d×"):format(addon.Place(p.bag),p.slot,p.count)
@@ -331,14 +339,30 @@ local function build()
     end
 
     function refresh()
-        local entries, open, last = addon.Inventory()
+        local entries, open, last, active = addon.Inventory()
+        local questlog=filter=="questlog"
+        bankStatus:SetShown(not questlog)
         bankStatus:SetText(open and last and "Bank · Live" or last and ("Bank · "..date("%d.%m. %H:%M",last)) or "Bank öffnen zum Einlesen")
+        hint:SetText(questlog and "Questname oder Quest-ID suchen" or "Gegenstand oder Item-ID suchen")
+        note:SetText(questlog and "Wähle Questgeber, Ziele oder Abgabe für den gewünschten Kartenpunkt."
+            or "„Ohne aktive Quest“ beschreibt dein Questlog. Der Gegenstand kann später noch gebraucht werden.")
         local q=(search:GetText() or ""):lower()
         local found, entriesByID={},{}
         for _, entry in ipairs(entries) do
             entriesByID[entry.id]=entry
             if (filter=="all" or entry.status==filter or filter=="repeatable" and #entry.repeats>0) and
                 (q=="" or entry.name:lower():find(q,1,true) or tostring(entry.id)==q) then found[#found+1]=entry end
+        end
+        if questlog then
+            for id, logTitle in pairs(active) do
+                if addon.QuestAllowed(id,true) then
+                    local title=type(logTitle)=="string" and logTitle or questTitle(id)
+                    if q=="" or title:lower():find(q,1,true) or tostring(id)==q then
+                        found[#found+1]={id=id,name=title,status="active",isQuest=true,icon=134269}
+                    end
+                end
+            end
+            table.sort(found,function(a,b) if a.name~=b.name then return a.name<b.name end; return a.id<b.id end)
         end
         local pages=math.max(1,math.ceil(#found/#rows))
         page=math.min(math.max(page,1),pages)
@@ -358,17 +382,18 @@ local function build()
                 r.bg:SetColorTexture(unpack(entry==current and color.selected or color.row))
                 r.icon:SetTexture(entry.icon or 134400)
                 r.title:SetText(entry.name)
-                r.status:SetText(status[entry.status][1])
+                r.status:SetText(entry.isQuest and "Im Questlog" or status[entry.status][1])
                 r.status:SetTextColor(unpack(status[entry.status][2]))
-                r.count:SetText(("%d Tasche · %s Bank"):format(entry.bags,last and tostring(entry.bank) or "?"))
+                r.count:SetText(entry.isQuest and ("Quest #"..entry.id)
+                    or ("%d Tasche · %s Bank"):format(entry.bags,last and tostring(entry.bank) or "?"))
             end
         end
         for i,b in ipairs(filters) do b.bg:SetColorTexture(unpack(categories[i][1]==filter and color.selected or color.row)) end
         prev:SetEnabled(page>1)
         nextPage:SetEnabled(page<pages)
-        count:SetText(("%d Funde · %d / %d"):format(#found,page,pages))
-        empty:SetText(#found==0 and "Keine passenden Gegenstände gefunden." or "")
-        details(current,entriesByID,open,last)
+        count:SetText(("%d %s · %d / %d"):format(#found,questlog and "Quests" or "Funde",page,pages))
+        empty:SetText(#found==0 and (questlog and "Keine passenden Quests im Questlog." or "Keine passenden Gegenstände gefunden.") or "")
+        details(current,entriesByID,open,last,active)
     end
     f:SetScript("OnShow",function()
         f:SetScale(math.min(1,UIParent:GetWidth()/(width+20),UIParent:GetHeight()/(height+20)))
@@ -394,7 +419,9 @@ local function toggle()
 end
 
 SLASH_QUESTFUND1="/questfund"
-SlashCmdList.QUESTFUND=toggle
+SlashCmdList.QUESTFUND=function(message)
+    if (message or ""):lower():match("^%s*stopp?%s*$") then addon.StopTracking() else toggle() end
+end
 
 local broker=LibStub and LibStub:GetLibrary("LibDataBroker-1.1",true)
 if broker then

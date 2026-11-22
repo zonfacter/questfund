@@ -1,14 +1,16 @@
 ## Interface: 16001
 ## Title: Questfund
 ## Notes: Questgegenstände und wiederholbare Abgaben in Taschen und Bank.
-## Version: 0.3.0
+## Version: 0.4.0
 ## X-License: GPL-3.0-only
 ## OptionalDeps: Titan
 ## SavedVariablesPerCharacter: QuestfundDB
 
 QuestIndex.lua
 AbgabeIndex.lua
+QuestorteIndex.lua
 Inventar.lua
+Questorte.lua
 AbgabeKarte.lua
 AbgabeKarte.xml
 KartenVorschau.lua

@@ -86,7 +86,7 @@ local function activeQuests()
         local info = read(questLog.GetInfo, i)
         if type(info) == "table" and (not canaccesstable or canaccesstable(info))
             and number(info.questID) and plain(info.isHeader) and not info.isHeader then
-            active[info.questID] = true
+            active[info.questID] = stringValue(info.title) or true
         end
     end
     return active
@@ -115,6 +115,40 @@ local function turnInAllowed(turnIn, side)
     return false
 end
 
+local function contactStageAllowed(contacts, side)
+    for _, ref in ipairs(contacts) do
+        local target=addon.questEntities[ref[1]][ref[2]]
+        if not target or target[6]==0 or matchesSide(target[6],side) then return true end
+    end
+    return #contacts==0
+end
+
+local function questAllowed(questID, onQuest, side, race, class)
+    local route,meta=addon.questRoutes[questID],addon.questMeta[questID]
+    if route and (not matchesSide(route[1],side) or not contactStageAllowed(route[3],side)
+        or not contactStageAllowed(route[5],side)) then return false end
+    return onQuest or not meta or (allowed(meta[2],race,8) and allowed(meta[3],class,11))
+end
+
+function addon.QuestAllowed(questID, onQuest)
+    local _, _, race=UnitRace("player")
+    local _, _, class=UnitClass("player")
+    return not not questAllowed(questID,onQuest,playerSide(),race,class)
+end
+
+function addon.QuestTargetAllowed(target, stage, sourceItem)
+    -- A hostile NPC may be a kill or loot objective. Friendliness is required for contacts.
+    return (target[1]==1 and (stage==2 or sourceItem~=nil)) or matchesSide(target[6],playerSide())
+end
+
+function addon.LiveQuestWaypoint(questID)
+    if not questLog.GetNextWaypoint or read(questLog.IsOnQuest,questID)~=true then return end
+    local ok,map,x,y=pcall(questLog.GetNextWaypoint,questID)
+    if ok and number(map) and map>0 and number(x) and number(y) and x<=1 and y<=1 then
+        return {map,x*100,y*100}
+    end
+end
+
 function addon.TurnInTargets(questID)
     local turnIn, side = addon.turnIns[questID],playerSide()
     local targets={}
@@ -125,7 +159,12 @@ function addon.TurnInTargets(questID)
     return targets
 end
 
-function addon.CanTrackTurnIn(destination)
+function addon.CanTrackDestination(destination)
+    if destination.stage then
+        local id=destination.questID
+        return addon.QuestAllowed(id,read(questLog.IsOnQuest,id)==true)
+            and addon.QuestTargetAllowed(destination.target,destination.stage,destination.sourceItem)
+    end
     local turnIn = addon.turnIns[destination.questID]
     local side = playerSide()
     return turnIn and matchesSide(turnIn.side,side) and matchesSide(destination.target[6],side)
@@ -163,11 +202,10 @@ local function classify(row, active, race, class, side)
     end
     row.repeats = {}
     for id, flags in pairs(row.quests) do
-        local meta = addon.questMeta[id]
         local turnIn = addon.turnIns[id]
         local onQuest = active[id] or read(questLog.IsOnQuest, id) == true
         if onQuest then row.active = true end
-        if (not turnIn or turnInAllowed(turnIn,side)) and (onQuest or not meta or (allowed(meta[2],race,8) and allowed(meta[3],class,11))) then
+        if (not turnIn or turnInAllowed(turnIn,side)) and questAllowed(id,onQuest,side,race,class) then
             matched = true
             if turnIn and (flags%2==1 or turnIn.amounts[row.id]) then row.repeats[#row.repeats+1] = id end
             if math.floor(flags/2)%2==1 then
@@ -232,7 +270,7 @@ function addon.Inventory()
         if a.name ~= b.name then return a.name < b.name end
         return a.id < b.id
     end)
-    return result, bankOpen and bankReadable, snapshot and snapshot.time
+    return result, bankOpen and bankReadable, snapshot and snapshot.time, active
 end
 
 local events = CreateFrame("Frame")

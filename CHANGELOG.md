@@ -1,4 +1,16 @@
-# Questfund 0.3.0
+# Changelog
+
+## Questfund 0.4.0
+
+Release for **World of Warcraft: Forever 1.60.1**.
+
+- Added a **Questlog** view for active quests, including quests with no related item in your bags or bank.
+- View known quest givers, objectives, and turn-in NPCs or objects for regular quests. The world map marks the quest's known locations in the current area. Select **Verfolgen** to track one location on the minimap.
+- Added map locations for creature, object, and exploration objectives, plus known drop sources for item objectives. If the index has no objective location, Questfund can use a waypoint supplied by the active quest log.
+- Extended Horde and Alliance filtering to regular quests, quest givers, and turn-in NPCs. Hostile targets still appear for combat and loot objectives.
+- Replaced the small tracking close icon with a larger **Stopp** button and dedicated click area. You can also end tracking with `/questfund stop`.
+
+## Questfund 0.3.0
 
 First public release for **World of Warcraft: Forever 1.60.1**.
 

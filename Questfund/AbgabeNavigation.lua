@@ -60,9 +60,9 @@ local function offset(mapID,x,y,position)
     return dx*projection.ex+dy*projection.ey,dx*projection.nx+dy*projection.ny
 end
 
-local function stop()
+function addon.StopTracking()
     destination,projection=nil,nil
-    tracker:Hide()
+    if tracker then tracker:Hide() end
     if minimapPin then minimapPin:Hide() end
     addon.CloseTurnInPreview()
 end
@@ -93,7 +93,7 @@ end
 
 local function update()
     if not destination then return end
-    if not addon.CanTrackTurnIn(destination) then stop(); return end
+    if not addon.CanTrackDestination(destination) then addon.StopTracking(); return end
     local mapID,x,y,position=playerPosition()
     addon.UpdateTurnInPreview(mapID,x,y)
     local east,north,remote=offset(mapID,x,y,position)
@@ -119,36 +119,46 @@ end
 
 local function build()
     tracker=CreateFrame("Frame","QuestfundZielanzeige",UIParent)
-    tracker:SetSize(236,47)
+    tracker:SetSize(306,47)
     if Minimap then tracker:SetPoint("TOPRIGHT",Minimap,"TOPLEFT",-12,-4)
     else tracker:SetPoint("TOPRIGHT",UIParent,"TOPRIGHT",-20,-30) end
     tracker:SetFrameStrata("HIGH")
     tracker:SetClampedToScreen(true)
 
     local body=CreateFrame("Button",nil,tracker)
-    body:SetAllPoints()
+    body:SetPoint("TOPLEFT",0,0)
+    body:SetSize(229,47)
     local background=body:CreateTexture(nil,"BACKGROUND")
     background:SetAllPoints()
     background:SetColorTexture(0.07,0.10,0.12,0.96)
     body:SetScript("OnClick",togglePreview)
     tracker.title=body:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
     tracker.title:SetPoint("TOPLEFT",10,-8)
-    tracker.title:SetWidth(196)
+    tracker.title:SetWidth(214)
     tracker.title:SetJustifyH("LEFT")
     tracker.title:SetMaxLines(1)
     tracker.title:SetTextColor(0.54,0.89,0.74)
     tracker.info=body:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
     tracker.info:SetPoint("TOPLEFT",10,-26)
-    tracker.info:SetWidth(221)
+    tracker.info:SetWidth(214)
     tracker.info:SetJustifyH("LEFT")
     tracker.info:SetMaxLines(1)
 
     local close=CreateFrame("Button",nil,tracker)
-    close:SetSize(23,23)
-    close:SetPoint("TOPRIGHT",-3,-2)
+    close:SetSize(73,47)
+    close:SetPoint("TOPRIGHT",0,0)
     close:SetNormalFontObject(GameFontHighlight)
-    close:SetText("×")
-    close:SetScript("OnClick",stop)
+    close:SetFontString(close:CreateFontString(nil,"OVERLAY","GameFontHighlight"))
+    close:GetFontString():SetAllPoints()
+    close:SetText("Stopp")
+    local closeBackground=close:CreateTexture(nil,"BACKGROUND")
+    closeBackground:SetAllPoints()
+    closeBackground:SetColorTexture(0.31,0.22,0.14,0.98)
+    local highlight=close:CreateTexture(nil,"HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(0.98,0.76,0.46,0.16)
+    close:SetHighlightTexture(highlight)
+    close:SetScript("OnClick",addon.StopTracking)
 
     if Minimap then
         minimapPin=CreateFrame("Button","QuestfundMinimapZiel",Minimap)
@@ -176,7 +186,7 @@ local function build()
 end
 
 function addon.TrackTurnIn(target)
-    if not addon.CanTrackTurnIn(target) then return false end
+    if not addon.CanTrackDestination(target) then return false end
     if not tracker then build() end
     addon.CloseTurnInPreview()
     destination=target

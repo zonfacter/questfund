@@ -15,7 +15,7 @@ for key in ([[
     SetJustifyH SetNormalFontObject SetDisabledFontObject SetHighlightTexture SetFrameStrata
     SetClampedToScreen SetMovable EnableMouse RegisterForDrag SetFontObject SetTextInsets
     SetMaxLetters SetAutoFocus ClearFocus ClearAllPoints SetMaxLines SetTexture EnableMouseWheel SetScale
-    SetMouseClickEnabled SetMouseMotionEnabled SetFrameLevel
+    SetMouseClickEnabled SetMouseMotionEnabled SetFrameLevel SetAlpha
 ]]):gmatch("%S+") do methods[key]=noop end
 function CreateFrame(kind,name,parent)
     local frame=setmetatable({kind=kind,name=name,parent=parent,shown=true,enabled=true,events={},scripts={}}, {__index=methods})
@@ -104,16 +104,20 @@ C_Container={
 }
 C_QuestLog={
     GetNumQuestLogEntries=function() return #active end,
-    GetInfo=function(i) return {questID=active[i],isHeader=false} end,
+    GetInfo=function(i) return {questID=active[i],isHeader=false,title=questTitles and questTitles[active[i]]} end,
     IsOnQuest=function(id) for _,i in ipairs(active) do if id==i then return true end end return false end,
     IsQuestFlaggedCompleted=function(id) return id==2 and doneStarter==true or false end,
     GetTitleForQuestID=function(id) if id==7837 then return "Zusätzlicher Runenstoff" end end,
     GetQuestObjectives=function(id) if id==7837 then return liveObjectives end end,
+    GetNextWaypoint=function(id) if id==98765 then return 1454,0.25,0.5 end end,
 }
 function CreateVector2D(x,y) return {GetXY=function() return x,y end} end
 playerMap,playerX,playerY=1454,0.35,0.88
 C_Map={
-    GetMapInfo=function(id) if id==1454 then return {name="Orgrimmar"} end end,
+    GetMapInfo=function(id)
+        local names={[1454]="Orgrimmar",[1440]="Eschental",[1429]="Wald von Elwynn"}
+        if names[id] then return {name=names[id]} end
+    end,
     GetBestMapForUnit=function() return playerMap end,
     GetPlayerMapPosition=function() return CreateVector2D(playerX,playerY) end,
     GetMapWorldSize=function() return 1000,2000 end,
@@ -161,6 +165,7 @@ local function loadWorldMap()
         OnMapChanged=function(self) self:RefreshAllData() end,
     }
     local map=CreateFrame("Frame","WorldMapFrame")
+    map.pinPool,map.activePins={},{}
     map:Hide()
     function map:AddDataProvider(provider)
         assert(not self.provider)
@@ -173,20 +178,25 @@ local function loadWorldMap()
         if self.provider then self.provider:OnMapChanged() end
     end
     function map:AcquirePin(template,...)
-        assert(template==testPinTemplate and not self.activePin)
-        if not self.pin then
-            self.pin=CreateFrame("Frame",nil,self)
-            Mixin(self.pin,_G[testPinMixin])
-            self.pin[testPinInit](self.pin)
-            self.pin:OnLoad()
+        assert(template==testPinTemplate)
+        local index=#self.activePins+1
+        local pin=self.pinPool[index]
+        if not pin then
+            pin=CreateFrame("Frame",nil,self)
+            self.pinPool[index]=pin
+            Mixin(pin,_G[testPinMixin])
+            pin[testPinInit](pin)
+            pin:OnLoad()
         end
-        self.activePin=self.pin
-        self.pin:OnAcquired(...)
-        return self.pin
+        self.activePin=pin
+        self.activePins[index]=pin
+        pin:OnAcquired(...)
+        return pin
     end
     function map:RemoveAllPinsByTemplate(template)
         assert(template==testPinTemplate)
-        if self.activePin then self.activePin:OnReleased(); self.activePin=nil end
+        for _,pin in ipairs(self.activePins) do pin:OnReleased() end
+        self.activePins,self.activePin={},nil
     end
     function map:PanTo(x,y) self.panX,self.panY=x,y end
     map:SetScript("OnHide",function(self) if self.provider then self.provider:OnHide() end end)
@@ -303,7 +313,7 @@ tick()
 assert(not QuestfundMinimapZiel:IsShown() and find("FontString","Anderer Kartenbereich · Orgrimmar"))
 assert(preview:IsShown())
 playerMap=1454
-click("×",QuestfundZielanzeige)
+click("Stopp",QuestfundZielanzeige)
 assert(not preview:IsShown() and not QuestfundMinimapZiel:IsShown() and not QuestfundZielanzeige:IsShown())
 click("Verfolgen",panel)
 assert(QuestfundZielanzeige:IsShown() and not panel:IsVisible() and not map:IsShown())
@@ -361,5 +371,57 @@ assert(byID(14047).quests[7801] and not byID(14047).quests[7837])
 assert(byID(1251).quests[8518] and not (byID(3576) and byID(3576).quests[8543]))
 assert(#addon.TurnInTargets(5508)==1)
 assert(not addon.TrackTurnIn({questID=7837,target=target,point=points[1]}))
+
+questTitles={[25]="Unruhe im Eschental",[7]="Koboldlager säubern",[98765]="Neue Quest"}
+faction,raceID="Horde",8
+setActive(25,7) -- questlog view is independent of items and still filters the opposite faction
+fire("QUEST_LOG_UPDATE")
+click("Questlog")
+assert(find("FontString","Unruhe im Eschental") and not find("FontString","Koboldlager säubern"))
+local questPanel=assert(find("FontString","Quest 1 / 1")).parent
+local goals=addon.QuestStagePlaces(25,2)
+local explored=false
+for _,goal in ipairs(goals) do if goal.target[1]==4 and goal.point then explored=true end end
+assert(explored and #goals>1)
+assert(#addon.QuestStagePlaces(25,1)>0 and #addon.QuestStagePlaces(25,3)>0)
+click("Karte öffnen",questPanel)
+assert(map:IsShown() and not questPanel:IsVisible() and QuestfundZielanzeige:IsShown())
+local stages={}
+for _,pin in ipairs(map.activePins) do stages[pin.destination.stage]=true end
+assert(stages[1] and stages[2] and stages[3] and map.activePin.destination.stage==2)
+map:Hide()
+assert(questPanel:IsVisible() and QuestfundZielanzeige:IsShown())
+local stopButton=assert(find("Button","Stopp",QuestfundZielanzeige))
+assert(stopButton.width>=60 and stopButton.height>=40)
+assert(QuestfundZielanzeige.title.parent.width+stopButton.width<=QuestfundZielanzeige.width)
+click("Stopp",QuestfundZielanzeige)
+assert(not QuestfundZielanzeige:IsShown() and not preview:IsShown())
+click("Questgeber",questPanel)
+assert(find("FontString","Questgeber · "))
+click("Abgabe",questPanel)
+assert(find("FontString","Abgabe · "))
+click("Verfolgen",questPanel)
+assert(QuestfundZielanzeige:IsShown() and not map:IsShown())
+SlashCmdList.QUESTFUND("stop")
+assert(not QuestfundZielanzeige:IsShown())
+launcher.OnClick()
+
+faction,raceID="Alliance",1
+fire("QUEST_LOG_UPDATE")
+assert(find("FontString","Koboldlager säubern") and not find("FontString","Unruhe im Eschental"))
+assert(addon.QuestStagePlaces(7,2)[1].target[2]==6)
+local head=addon.QuestStagePlaces(6,2)[1]
+assert(head.sourceItem==182 and head.target[2]==103 and head.point)
+assert(not addon.TrackTurnIn(addon.Destination(goals[1],25,"Unruhe im Eschental")))
+setActive(98765)
+fire("QUEST_LOG_UPDATE")
+assert(find("FontString","Quest-Wegpunkt aus dem Questlog") and find("Button","25,0 / 50,0 · Karte öffnen"))
+
+setActive()
+faction,raceID="Horde",8
+doneStarter=false
+click("Queststart")
+assert(find("FontString","Queststart") and find("FontString","Questgeber · "))
+assert(addon.QuestStagePlaces(2,1)[1].sourceItem==16305)
 """)
-print("PASS: inventory, faction filtering, world map, distance, rotation, off-map marker and map preview.")
+print("PASS: inventory, faction filtering, quest log, quest locations, world map, minimap navigation and Stopp.")
